@@ -1,0 +1,69 @@
+<Window x:Class="BssManager.Views.RobloxLoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="Sign in to Roblox"
+        Height="820" Width="1040"
+        MinHeight="620" MinWidth="820"
+        Background="{StaticResource Bg}"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        TextOptions.TextFormattingMode="Ideal">
+
+    <!-- No AllowsTransparency here, unlike the other dialogs: WebView2 is a
+         child HWND and a layered window will not render one at all. -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="40" ResizeBorderThickness="6"
+                      GlassFrameThickness="0" CornerRadius="0"
+                      UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="40" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ==================================================== title bar -->
+        <Grid Grid.Row="0">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                <TextBlock Text="Sign in to Roblox" FontSize="12.5" FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <Border Width="1" Height="12" Margin="12,1,0,0" Background="{StaticResource LineStrong}"
+                        VerticalAlignment="Center" />
+                <TextBlock Text="Roblox's own login page, in a private browser window"
+                           FontSize="11" Margin="12,0,0,0" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextFaint}" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
+                        Margin="0,0,4,0" WindowChrome.IsHitTestVisibleInChrome="True">
+                <Button Style="{StaticResource CloseButton}" ToolTip="Cancel" Click="Cancel_Click">
+                    <TextBlock Style="{StaticResource Glyph}" Text="&#xE8BB;" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- ======================================================= browser -->
+        <Border Grid.Row="1" Margin="16,0,16,0" CornerRadius="10" ClipToBounds="True"
+                BorderBrush="{StaticResource Line}" BorderThickness="1"
+                Background="{StaticResource Surface}">
+            <wv2:WebView2 x:Name="Browser" DefaultBackgroundColor="#0E121B" />
+        </Border>
+
+        <!-- ================================================== status strip -->
+        <Grid Grid.Row="2" Margin="20,14,20,16">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <ContentControl x:Name="Spin" Style="{StaticResource Spinner}"
+                                VerticalAlignment="Center" Margin="0,1,10,0" />
+                <TextBlock x:Name="StatusText" FontSize="12" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextDim}"
+                           Text="Loading Roblox..." />
+            </StackPanel>
+
+            <Button Content="Cancel" Style="{StaticResource GhostButton}" Padding="16,9"
+                    HorizontalAlignment="Right" Click="Cancel_Click" />
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,23 @@
+# Build output
+bin/
+obj/
+publish/
+[Dd]ebug/
+[Rr]elease/
+*.user
+
+# Distribution artifacts (built locally, published to GitHub Releases instead)
+dist/
+
+# Editor / IDE
+.vs/
+.vscode/
+.idea/
+
+# Local scratch / backups
+.uibackup/
+*.tmp
+
+# OS
+Thumbs.db
+Desktop.ini

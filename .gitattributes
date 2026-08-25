@@ -1,0 +1,7 @@
+# Normalize line endings: text auto-detected, checked out native, stored LF.
+* text=auto
+
+# Binary assets — never touch line endings.
+*.png binary
+*.ico binary
+*.zip binary

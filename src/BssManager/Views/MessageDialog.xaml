@@ -1,0 +1,71 @@
+<Window x:Class="BssManager.Views.MessageDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="BSS Alt Manager"
+        SizeToContent="Height" Width="500"
+        ResizeMode="NoResize"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        TextOptions.TextFormattingMode="Ideal">
+
+    <!-- AllowsTransparency turns ClearType off for the whole window. The
+         background behind this text is opaque, so the hint is safe and puts
+         subpixel antialiasing back. -->
+    <Border RenderOptions.ClearTypeHint="Enabled"
+            Background="{StaticResource DialogBrush}" CornerRadius="14"
+            BorderBrush="{StaticResource DialogEdge}" BorderThickness="1"
+            RenderTransformOrigin="0.5,0.5">
+        <Border.RenderTransform>
+            <ScaleTransform ScaleX="1" ScaleY="1" />
+        </Border.RenderTransform>
+
+        <Border.Triggers>
+            <EventTrigger RoutedEvent="Loaded">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                         From="0" To="1" Duration="{StaticResource Fast}" />
+                        <DoubleAnimation Storyboard.TargetProperty="RenderTransform.(ScaleTransform.ScaleX)"
+                                         From="0.96" To="1" Duration="{StaticResource Medium}"
+                                         EasingFunction="{StaticResource EaseOutStrong}" />
+                        <DoubleAnimation Storyboard.TargetProperty="RenderTransform.(ScaleTransform.ScaleY)"
+                                         From="0.96" To="1" Duration="{StaticResource Medium}"
+                                         EasingFunction="{StaticResource EaseOutStrong}" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
+        </Border.Triggers>
+
+        <StackPanel Margin="26,24,26,22">
+
+            <StackPanel Orientation="Horizontal">
+                <!-- Colour carries the severity; the glyph just reinforces it. -->
+                <Border x:Name="IconRing" Width="34" Height="34" CornerRadius="17"
+                        BorderThickness="1" VerticalAlignment="Top" Margin="0,1,15,0">
+                    <TextBlock x:Name="IconGlyph" Text="!" FontSize="16" FontWeight="Bold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+
+                <StackPanel Width="389">
+                    <TextBlock x:Name="TitleText" FontSize="15.5" FontWeight="SemiBold"
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="MessageText" Style="{StaticResource Body}"
+                               FontSize="12.5" LineHeight="20" Margin="0,8,0,0" />
+                </StackPanel>
+            </StackPanel>
+
+            <Border Style="{StaticResource Divider}" Margin="0,20,0,0" />
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                <Button x:Name="CancelButton" Style="{StaticResource GhostButton}"
+                        Padding="16,9" Margin="0,0,8,0" Click="Cancel_Click" />
+                <Button x:Name="SecondaryButton" Padding="16,9" Margin="0,0,8,0" Click="Secondary_Click" />
+                <Button x:Name="PrimaryButton" Style="{StaticResource PrimaryButton}"
+                        Padding="20,9" Click="Primary_Click" IsDefault="True" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>
