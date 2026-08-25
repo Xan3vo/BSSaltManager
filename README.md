@@ -26,7 +26,6 @@ Download **`BssAltManager-win-Setup.exe`** from the
 - ✅ Installs per-user, adds shortcuts, fully self-contained — **no .NET needed**.
 - 🔄 **Updates itself.** Checks for new releases on launch and offers to restart into them.
 - ⚠️ Not code-signed → first run shows SmartScreen. Click **More info → Run anyway**.
-- 📦 Prefer no installer? Grab **`BssAltManager-win-Portable.zip`** instead (doesn't auto-update).
 
 > Runs elevated — it creates local Windows accounts and writes machine policy.
 
