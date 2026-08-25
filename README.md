@@ -44,12 +44,22 @@ dies and bringing it back — see [Not built yet](#not-built-yet).
 
 ## Download
 
-Grab the latest zip from the [Releases](https://github.com/Xan3vo/BSSaltManager/releases)
-page, unzip it anywhere, and run `BssManager.exe`. It is self-contained — no .NET
-install needed. Windows 10/11 x64 only.
+Grab **`BssAltManager-win-Setup.exe`** from the
+[latest release](https://github.com/Xan3vo/BSSaltManager/releases/latest) and run it.
+It installs per-user (no admin needed to install), adds a Start Menu and desktop
+shortcut, and launches. Self-contained — no .NET install needed. Windows 10/11 x64.
 
-The app requests elevation on start — it creates local accounts and writes to
-HKLM, neither of which works unelevated.
+**It updates itself.** On each start the app checks GitHub for a newer release in
+the background; when one is out it downloads quietly and offers to restart into it.
+No reinstalling.
+
+The app is not code-signed, so the first run shows a SmartScreen "unknown
+publisher" prompt — choose *More info → Run anyway*. It also requests elevation on
+start, because it creates local accounts and writes to HKLM, neither of which works
+unelevated.
+
+Prefer no installer? A **`BssAltManager-win-Portable.zip`** is on the same release —
+unzip and run `BssManager.exe`. The portable copy does not auto-update.
 
 ## Running from source
 

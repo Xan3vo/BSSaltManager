@@ -10,16 +10,27 @@
     <RootNamespace>BssManager</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Product>BSS Alt Manager</Product>
     <Company>Xan3vo</Company>
     <Copyright>Copyright (C) 2026 Xan3vo. Licensed under GPL-3.0-or-later.</Copyright>
     <ApplicationIcon>Assets\appicon.ico</ApplicationIcon>
+    <!-- We provide our own Main (below) so Velopack's hook runs first thing.
+         That means App.xaml must not auto-generate an entry point. -->
+    <StartupObject>BssManager.App</StartupObject>
   </PropertyGroup>
+
+  <!-- Compile App.xaml as a Page, not an ApplicationDefinition, so the XAML
+       compiler emits InitializeComponent() but no generated Main(). -->
+  <ItemGroup>
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.0" />
+    <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>
 
   <!-- The window/taskbar icon and the in-app title-bar mark. Resource, so they
