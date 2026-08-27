@@ -10,7 +10,7 @@
     <RootNamespace>BssManager</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Product>BSS Alt Manager</Product>
     <Company>Xan3vo</Company>
     <Copyright>Copyright (C) 2026 Xan3vo. Licensed under GPL-3.0-or-later.</Copyright>

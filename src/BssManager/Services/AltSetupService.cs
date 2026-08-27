@@ -176,7 +176,12 @@ public class AltSetupService
             Directory.CreateDirectory(SharedFolder);
 
             using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            using var response = await http.GetAsync(RobloxDownloadUrl, HttpCompletionOption.ResponseHeadersRead);
+            // ConfigureAwait(false): this must never resume on a caller's UI
+            // thread. It is awaited from the health panel, and a continuation
+            // hopping back to a blocked UI thread is exactly the deadlock this
+            // avoids.
+            using var response = await http.GetAsync(RobloxDownloadUrl, HttpCompletionOption.ResponseHeadersRead)
+                .ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
             // Download beside the target and swap, so a failed download never
@@ -184,7 +189,7 @@ public class AltSetupService
             var temp = RobloxInstaller + ".part";
             await using (var file = File.Create(temp))
             {
-                await response.Content.CopyToAsync(file);
+                await response.Content.CopyToAsync(file).ConfigureAwait(false);
             }
             File.Move(temp, RobloxInstaller, overwrite: true);
 

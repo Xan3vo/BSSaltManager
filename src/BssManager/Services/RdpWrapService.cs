@@ -1,5 +1,7 @@
 using System.IO;
+using System.IO.Compression;
 using System.Diagnostics;
+using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.ServiceProcess;
 using BssManager.Models;
@@ -265,12 +267,8 @@ public class RdpWrapService
                 case FixAction.StartTermService:
                     return StartTermService();
 
-                case FixAction.UpdateRdpWrapIni:
-                    return RunIniUpdater();
-
-                case FixAction.InstallRdpWrap:
-                    return OpenRdpWrapDownload();
-
+                // InstallRdpWrap and UpdateRdpWrapIni download from the network,
+                // so they run through the async path in the view model instead.
                 default:
                     return (false, "No fix available.");
             }
@@ -298,57 +296,259 @@ public class RdpWrapService
         }
     }
 
+    // ------------------------------------------------------------ self-heal
+
+    // The stock RDP Wrapper binaries. RDPWInst.exe carries rdpwrap.dll as a
+    // resource and drops it into Program Files on -i, so this one small zip is
+    // all that is needed to install the wrapper itself. The offsets that decide
+    // whether it actually works come from the ini below, not from here.
+    private const string RdpWrapZipUrl =
+        "https://github.com/stascorp/rdpwrap/releases/download/v1.6.2/RDPWrap-v1.6.2.zip";
+
+    // The community-maintained ini. The original project's is frozen at 2017 and
+    // knows no build past Windows 10 1803, which is exactly why multi-session
+    // silently breaks on a current machine. This one is updated continuously and
+    // carries sections for current Windows 11 builds.
+    private const string MaintainedIniUrl =
+        "https://raw.githubusercontent.com/sebaxakerhtc/rdpwrap.ini/master/rdpwrap.ini";
+
     /// <summary>
-    /// Runs RDP Wrapper's own updater rather than reimplementing offset
-    /// discovery. It needs internet access and restarts TermService, which drops
-    /// live sessions, so the UI warns before calling this.
+    /// Installs RDP Wrapper from nothing: downloads the binaries, runs the
+    /// installer, then lays down an ini that supports this exact Windows build.
+    /// Everything the "RDP Wrapper installed" and "Service hooked" checks need.
     /// </summary>
-    private static (bool, string) RunIniUpdater()
+    public async Task<(bool ok, string message)> InstallRdpWrapperAsync(IProgress<string>? progress = null)
     {
-        var dir = ResolveInstallDirectory();
-        if (dir is null) return (false, "RDP Wrapper install folder not found.");
+        var work = Path.Combine(Path.GetTempPath(), "BssRdpWrapInstall");
 
-        var updater = new[] { "autoupdate.bat", "update.bat" }
-            .Select(f => Path.Combine(dir, f))
-            .FirstOrDefault(File.Exists);
-
-        if (updater is null)
-            return (false, "No autoupdate.bat or update.bat in the RDP Wrapper folder.");
-
-        Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = "cmd.exe",
-            Arguments = $"/c \"\"{updater}\"\"",
-            WorkingDirectory = dir,
-            UseShellExecute = true,
-            Verb = "runas"
-        });
-        return (true, "Updater launched in a console window. Re-run the health check when it finishes.");
+            TryDeleteDirectory(work);
+            Directory.CreateDirectory(work);
+
+            var zipPath = Path.Combine(work, "rdpwrap.zip");
+
+            progress?.Report("Downloading RDP Wrapper...");
+            using (var http = NewHttp())
+            using (var resp = await http.GetAsync(RdpWrapZipUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
+            {
+                resp.EnsureSuccessStatusCode();
+                await using var fs = File.Create(zipPath);
+                await resp.Content.CopyToAsync(fs).ConfigureAwait(false);
+            }
+
+            progress?.Report("Extracting...");
+            var extract = Path.Combine(work, "files");
+            ZipFile.ExtractToDirectory(zipPath, extract);
+
+            var installer = Directory
+                .EnumerateFiles(extract, "RDPWInst.exe", SearchOption.AllDirectories)
+                .FirstOrDefault();
+            if (installer is null)
+                return (false, "The RDP Wrapper download did not contain RDPWInst.exe.");
+
+            progress?.Report("Installing RDP Wrapper...");
+            // -i install, -o override the unsupported-OS refusal (the OS is only
+            // "unsupported" because the bundled 2017 ini is; the fresh ini fixes
+            // that a moment later). RDPWInst also sets the TermService ServiceDll,
+            // opens the firewall and restarts the service.
+            var (ran, _, _) = RunProcess(installer, "-i -o", Path.GetDirectoryName(installer)!);
+            if (!ran)
+                return (false, "The RDP Wrapper installer would not run. Your antivirus may have blocked it -- exclude the folder and try again.");
+
+            // Confirm the dll actually landed. Antivirus quarantining rdpwrap.dll
+            // is the usual failure here and it is silent, so check for it by name.
+            var dir = ResolveInstallDirectory();
+            var dll = dir is null ? null : Path.Combine(dir, "rdpwrap.dll");
+            if (dll is null || !File.Exists(dll))
+                return (false,
+                    "RDP Wrapper did not install -- your antivirus most likely removed rdpwrap.dll. " +
+                    "Add an exclusion for \"C:\\Program Files\\RDP Wrapper\", then try again.");
+
+            progress?.Report("Fetching the configuration for your Windows build...");
+            var ini = await UpdateIniAsync(progress).ConfigureAwait(false);
+
+            return ini.ok
+                ? (true, $"RDP Wrapper installed and configured. {ini.message}")
+                : (false, $"RDP Wrapper is installed, but the configuration step failed: {ini.message}");
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"rdp wrapper install failed: {ex}");
+            return (false, $"Could not install RDP Wrapper: {ex.Message}");
+        }
+        finally
+        {
+            TryDeleteDirectory(work);
+        }
     }
 
-    private static (bool, string) OpenRdpWrapDownload()
+    /// <summary>
+    /// Replaces rdpwrap.ini with the maintained one and restarts Terminal
+    /// Services so it takes effect. This is the fix for the most common and most
+    /// confusing failure: the wrapper is installed and hooked, but its ini has no
+    /// entry for the running termsrv.dll, so multi-session is silently dead.
+    /// </summary>
+    public async Task<(bool ok, string message)> UpdateIniAsync(IProgress<string>? progress = null)
     {
-        var dir = ResolveInstallDirectory();
-        var installer = dir is null ? null : Path.Combine(dir, "RDPWInst.exe");
-
-        if (installer is not null && File.Exists(installer))
+        try
         {
-            Process.Start(new ProcessStartInfo
+            var dir = ResolveInstallDirectory();
+            if (dir is null)
+                return (false, "RDP Wrapper is not installed yet -- install it first, then update the ini.");
+
+            progress?.Report("Downloading the latest rdpwrap.ini...");
+            string ini;
+            using (var http = NewHttp())
             {
-                FileName = installer,
-                Arguments = "-i -o",
-                UseShellExecute = true,
-                Verb = "runas"
-            });
-            return (true, "Reinstalling the wrapper via RDPWInst.");
-        }
+                ini = await http.GetStringAsync(MaintainedIniUrl).ConfigureAwait(false);
+            }
 
-        Process.Start(new ProcessStartInfo
+            // A truncated download or an error page must never overwrite a
+            // working ini. The real file is ~20k lines and opens with [Main].
+            if (ini.Length < 4000 || !ini.Contains("[Main]", StringComparison.OrdinalIgnoreCase))
+                return (false, "The downloaded rdpwrap.ini looked wrong, so it was left untouched. Try again in a moment.");
+
+            var iniPath = Path.Combine(dir, "rdpwrap.ini");
+
+            progress?.Report("Applying rdpwrap.ini...");
+            try { if (File.Exists(iniPath)) File.Copy(iniPath, iniPath + ".bak", overwrite: true); }
+            catch (Exception ex) { Log.Write($"could not back up rdpwrap.ini: {ex.Message}"); }
+
+            var temp = iniPath + ".new";
+            await File.WriteAllTextAsync(temp, ini).ConfigureAwait(false);
+            File.Move(temp, iniPath, overwrite: true);
+
+            progress?.Report("Restarting Terminal Services...");
+            var (restarted, restartError) = RestartTermService();
+
+            var version = TermSrvVersion;
+            var (supported, newest) = IniSupports(iniPath, version);
+
+            if (!supported)
+                return (false,
+                    $"The ini updated, but it still has no entry for termsrv.dll {version} " +
+                    $"(newest listed is {newest ?? "none"}). Your Windows build may be brand new; check back once the ini catches up.");
+
+            if (!restarted)
+                return (true,
+                    $"rdpwrap.ini now supports termsrv.dll {version}, but Terminal Services could not be restarted " +
+                    $"({restartError}). Restart your PC to finish.");
+
+            return (true, $"rdpwrap.ini updated -- multi-session now supports termsrv.dll {version}.");
+        }
+        catch (Exception ex)
         {
-            FileName = "https://github.com/stascorp/rdpwrap/releases",
-            UseShellExecute = true
-        });
-        return (true, "Opened the RDP Wrapper releases page in your browser.");
+            Log.Write($"ini update failed: {ex}");
+            return (false, $"Could not update rdpwrap.ini: {ex.Message}");
+        }
+    }
+
+    private static HttpClient NewHttp()
+    {
+        // raw.githubusercontent.com is happy without one, but GitHub rejects a
+        // request with no User-Agent, so set it on every client we make.
+        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("BssAltManager");
+        return http;
+    }
+
+    /// <summary>
+    /// Stops TermService (and its dependents, which the service manager will not
+    /// let us skip) and starts it again, so a freshly written rdpwrap.ini is
+    /// reloaded without a reboot.
+    /// </summary>
+    private static (bool ok, string message) RestartTermService()
+    {
+        try
+        {
+            using var sc = new ServiceController("TermService");
+
+            var dependents = sc.DependentServices
+                .Where(d => d.Status != ServiceControllerStatus.Stopped)
+                .ToList();
+
+            foreach (var dep in dependents)
+            {
+                try
+                {
+                    dep.Stop();
+                    dep.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(20));
+                }
+                catch (Exception ex) { Log.Write($"could not stop dependent {dep.ServiceName}: {ex.Message}"); }
+            }
+
+            if (sc.Status != ServiceControllerStatus.Stopped)
+            {
+                sc.Stop();
+                sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+            }
+
+            sc.Start();
+            sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+
+            foreach (var dep in dependents)
+            {
+                try
+                {
+                    dep.Start();
+                    dep.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));
+                }
+                catch (Exception ex) { Log.Write($"could not restart dependent {dep.ServiceName}: {ex.Message}"); }
+            }
+
+            return (true, "");
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"restart TermService failed: {ex}");
+            return (false, ex.Message);
+        }
+    }
+
+    private static (bool ran, int exitCode, string output) RunProcess(
+        string file, string args, string workingDir, int timeoutMs = 120_000)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = file,
+                Arguments = args,
+                WorkingDirectory = workingDir,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            using var p = Process.Start(psi);
+            if (p is null) return (false, -1, "process did not start");
+
+            // Read before waiting so a chatty child cannot fill a pipe and block.
+            var stdout = p.StandardOutput.ReadToEnd();
+            var stderr = p.StandardError.ReadToEnd();
+            if (!p.WaitForExit(timeoutMs))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                return (false, -1, "timed out");
+            }
+
+            var output = $"{stdout}\n{stderr}".Trim();
+            Log.Write($"{Path.GetFileName(file)} {args} -> exit {p.ExitCode}: {output}");
+            return (true, p.ExitCode, output);
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"could not run {Path.GetFileName(file)} {args}: {ex.Message}");
+            return (false, -1, ex.Message);
+        }
+    }
+
+    private static void TryDeleteDirectory(string dir)
+    {
+        try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
+        catch (Exception ex) { Log.Write($"could not clean up {dir}: {ex.Message}"); }
     }
 
     // ------------------------------------------------------------------ helpers

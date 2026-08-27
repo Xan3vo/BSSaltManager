@@ -89,7 +89,7 @@ public class MainViewModel : ObservableObject
         LaunchAllCommand = new RelayCommand(async () => await LaunchAllAsync(), () => Alts.Count > 0 && !Busy);
         LogOffAllCommand = new RelayCommand(LogOffAll, () => Alts.Any(a => a.IsRunning) && !Busy);
         RefreshHealthCommand = new RelayCommand(() => _ = RefreshHealthAsync(), () => !IsCheckingHealth && !Busy);
-        ApplyFixCommand = new RelayCommand(p => ApplyFix(p as HealthCheck));
+        ApplyFixCommand = new RelayCommand(p => _ = ApplyFixAsync(p as HealthCheck), _ => !IsCheckingHealth && !Busy);
         OpenDataFolderCommand = new RelayCommand(() => OpenInExplorer(AppPaths.Root));
         OpenLogCommand = new RelayCommand(OpenLog);
 
@@ -619,9 +619,21 @@ public class MainViewModel : ObservableObject
             ?? keep;
     }
 
-    private void ApplyFix(HealthCheck? check)
+    /// <summary>
+    /// Applies a repair off the UI thread.
+    ///
+    /// Every branch here does something that can block for a noticeable time --
+    /// the Roblox fix downloads an installer, the alt-setup fix walks the whole
+    /// Task Scheduler and loads a registry hive, and even the "open the download
+    /// page" fix hands off to the shell. Run inline on the click, any of them
+    /// freezes the window; the Roblox one froze it for good, because awaiting a
+    /// download while the UI thread blocked on its result is a deadlock. So the
+    /// work goes to a background thread and the panel shows its spinner meanwhile.
+    /// </summary>
+    private async Task ApplyFixAsync(HealthCheck? check)
     {
         if (check is null || !check.CanFix) return;
+        if (IsCheckingHealth || Busy) return;
 
         if (check.Fix == FixAction.UpdateRdpWrapIni)
         {
@@ -632,26 +644,42 @@ public class MainViewModel : ObservableObject
             if (proceed != DialogChoice.Primary) return;
         }
 
-        var (ok, message) = check.Fix switch
-        {
-            FixAction.SkipFirstLoginSetup => _altSetup.ApplySetup(),
-            FixAction.StageRoblox => StageRoblox(),
-            FixAction.TrustRdpFiles => _signing.Apply(),
-            _ => _rdpWrap.ApplyFix(check.Fix)
-        };
-        Status = message;
-        if (ok) _ = RefreshHealthAsync();
-        else MessageDialog.Show("Fix failed", message, primary: "OK", kind: DialogKind.Danger);
-    }
+        bool ok;
+        string message;
 
-    /// <summary>
-    /// Downloads the Roblox installer. Runs synchronously on purpose: it is a
-    /// one-off, and the status line says what is happening while it runs.
-    /// </summary>
-    private (bool, string) StageRoblox()
-    {
-        Status = "Downloading the Roblox installer...";
-        return _altSetup.StageRobloxAsync().GetAwaiter().GetResult();
+        // Progress created on the UI thread, so its callbacks marshal back here
+        // and can touch Status directly while the work runs off-thread.
+        var progress = new Progress<string>(msg => Status = msg);
+
+        IsCheckingHealth = true;
+        try
+        {
+            Status = check.Fix switch
+            {
+                FixAction.InstallRdpWrap => "Installing RDP Wrapper...",
+                FixAction.UpdateRdpWrapIni => "Updating rdpwrap.ini...",
+                FixAction.StageRoblox => "Downloading the Roblox installer...",
+                _ => "Applying fix..."
+            };
+
+            (ok, message) = check.Fix switch
+            {
+                FixAction.SkipFirstLoginSetup => await Task.Run(() => _altSetup.ApplySetup()),
+                FixAction.StageRoblox => await _altSetup.StageRobloxAsync(),
+                FixAction.InstallRdpWrap => await _rdpWrap.InstallRdpWrapperAsync(progress),
+                FixAction.UpdateRdpWrapIni => await _rdpWrap.UpdateIniAsync(progress),
+                FixAction.TrustRdpFiles => await Task.Run(() => _signing.Apply()),
+                _ => await Task.Run(() => _rdpWrap.ApplyFix(check.Fix))
+            };
+        }
+        finally
+        {
+            IsCheckingHealth = false;
+        }
+
+        Status = message;
+        if (ok) await RefreshHealthAsync();
+        else MessageDialog.Show("Fix failed", message, primary: "OK", kind: DialogKind.Danger);
     }
 
     // ----------------------------------------------------------- signing in
